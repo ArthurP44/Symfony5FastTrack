@@ -20,7 +20,6 @@ final class Version20210303143420 extends AbstractMigration
     public function up(Schema $schema) : void
     {
         // this up() migration is auto-generated, please modify it to your needs
-        $this->addSql('DROP TABLE sessions');
         $this->addSql('ALTER TABLE conference ADD slug VARCHAR(255)');
         $this->addSql("UPDATE conference SET slug=CONCAT(LOWER(city), '-', year)");
         $this->addSql('ALTER TABLE conference ALTER COLUMN slug SET NOT NULL');

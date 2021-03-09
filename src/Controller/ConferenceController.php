@@ -16,6 +16,8 @@ use App\Form\CommentFormType;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use App\Message\CommentMessage;
 use Symfony\Component\Messenger\MessageBusInterface;
+use Symfony\Component\Notifier\Notification\Notification;
+use Symfony\Component\Notifier\NotifierInterface;
 
 
 class ConferenceController extends AbstractController
@@ -55,38 +57,51 @@ class ConferenceController extends AbstractController
     }
 
     #[Route('/conference/{slug}', name: 'conference')]
-    public function show(Request $request, Conference $conference, CommentRepository $commentRepository, string $photoDir): Response
+    public function show(
+        Request $request,
+        Conference $conference,
+        CommentRepository $commentRepository,
+        NotifierInterface $notifier,
+        string $photoDir
+    ): Response
     {
         $comment = new Comment();
         $form = $this->createForm(CommentFormType::class, $comment);
 
         $form->handleRequest($request);
-            if ($form->isSubmitted() && $form->isValid()) {
-                $comment->setConference($conference);
-                if ($photo = $form['photo']->getData()) {
-                    $filename = bin2hex(random_bytes(6)).'.'.$photo->guessExtension();
-                    try {
-                        $photo->move($photoDir, $filename);
-                    } catch (FileException $e) {
-                        // unable to upload the photo, give up
-                    }
-                    $comment->setPhotoFilename($filename);
+        if ($form->isSubmitted() && $form->isValid()) {
+            $comment->setConference($conference);
+            if ($photo = $form['photo']->getData()) {
+                $filename = bin2hex(random_bytes(6)).'.'.$photo->guessExtension();
+                try {
+                    $photo->move($photoDir, $filename);
+                } catch (FileException $e) {
+                    // unable to upload the photo, give up
                 }
+                $comment->setPhotoFilename($filename);
+            }
 
-                $this->entityManager->persist($comment);
-                $this->entityManager->flush();
+            $this->entityManager->persist($comment);
+            $this->entityManager->flush();
 
-                $context = [
-                    'user_ip' => $request->getClientIp(),
-                    'user_agent' => $request->headers->get('user-agent'),
-                    'referrer' => $request->headers->get('referer'),
-                    'permalink' => $request->getUri(),
-                ];
+            $context = [
+                'user_ip' => $request->getClientIp(),
+                'user_agent' => $request->headers->get('user-agent'),
+                'referrer' => $request->headers->get('referer'),
+                'permalink' => $request->getUri(),
+            ];
 
-                $this->bus->dispatch(new CommentMessage($comment->getId(), $context));
+            $this->bus->dispatch(new CommentMessage($comment->getId(), $context));
+
+            $notifier->send(new Notification('Thank you for the feedback; your comment will be posted after moderation.', ['browser']));
 
             return $this->redirectToRoute('conference', ['slug' => $conference->getSlug()]);
         }
+
+        if ($form->isSubmitted()) {
+            $notifier->send(new Notification('Can you check your submission? There are some problems with it.', ['browser']));
+        }
+
 
         $offset = max(0, $request->query->getInt('offset', 0));
         $paginator = $commentRepository->getCommentPaginator($conference, $offset);
